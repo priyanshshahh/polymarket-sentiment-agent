@@ -116,6 +116,67 @@ frontend/
       TradeDrawer.tsx      # Rationale drawer (Trade -> Signal -> News -> Snapshot)
 ```
 
+## Deployment
+
+The agent has a long-running background loop, so it needs an **always-on**
+host. Free tiers that sleep (e.g. Render free) will pause the loop. The
+recommended target is **Fly.io** — free tier, persistent volume for SQLite,
+no sleep. The Dockerfile builds both frontend and backend into one image so
+you ship a **single URL** that serves both the dashboard and the API.
+
+### Deploy to Fly.io
+
+One-time setup:
+
+```bash
+# Install flyctl
+brew install flyctl                  # macOS
+# OR: curl -L https://fly.io/install.sh | sh
+
+fly auth signup                      # or `fly auth login`
+```
+
+Deploy:
+
+```bash
+cd <repo-root>
+
+# 1. Reserve a globally unique app name + region (creates fly.toml metadata).
+fly launch --no-deploy --copy-config --name <YOUR-APP-NAME> --region iad
+
+# 2. Create the persistent volume (1GB free tier).
+fly volumes create doa_data --size 1 --region iad
+
+# 3. (Optional) set an LLM key as a Fly secret.
+fly secrets set GROQ_API_KEY=...
+
+# 4. Ship it.
+fly deploy
+
+# 5. Open the live URL.
+fly open
+```
+
+Your dashboard is now at `https://<YOUR-APP-NAME>.fly.dev`. The SQLite DB
+lives on the `/data` volume, so trade history survives redeploys.
+
+### Other free options
+
+| Platform | Verdict |
+| --- | --- |
+| **Render** (free) | Sleeps after 15 min idle → kills the agent loop. Avoid. |
+| **Railway** | Works, but free tier is a one-time $5 credit. |
+| **Hugging Face Spaces** | Free GPU/CPU spaces work for the API, but loops can be killed on inactivity. |
+| **A $4/mo VPS** | DigitalOcean/Hetzner. Full control, no time limits. Use the same Dockerfile. |
+| **Split deploy** | Frontend on Vercel + backend on Fly. Set `VITE_API_URL` and rebuild. Only worth doing if you outgrow single-deploy. |
+
+### CI
+
+`.github/workflows/ci.yml` runs on every push and PR:
+- Backend: install deps, smoke-import the app, sanity-check Bayesian + heuristic.
+- Frontend: `tsc --noEmit` + `vite build`.
+- Docker: build the production image end-to-end.
+
 ## Troubleshooting
 
 - **"No trades yet"** is normal — the Overseer requires `edge ≥ 0.08` and `confidence ≥ 0.55`. Drop them in `.env` for faster demo trades.
