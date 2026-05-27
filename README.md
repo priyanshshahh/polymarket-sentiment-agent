@@ -6,19 +6,92 @@
 
 **Live demo:** **https://poly-agent.fly.dev**
 
-A modular trading agent that turns financial news into calibrated probability
-estimates and compares them against live [Polymarket](https://polymarket.com)
-order books. When the model's posterior disagrees with the market by more
-than a risk-gated threshold, the agent takes a position.
+Poly Agent is a **modular sentiment-trading system** for [Polymarket](https://polymarket.com):
+it ingests crypto news, estimates probabilities with rigorous math (not LLM
+guessing), compares them to live market prices, and paper-trades when the edge
+is large enough. It also exposes a **pay-per-call API** via the [x402](https://x402.org)
+protocol so other apps and AI agents can buy premium trade intelligence with
+USDC on Base Sepolia.
 
-Ships in **paper-trading mode by default** — runs end-to-end against the
-real Polymarket API with zero money at risk, zero API keys required, zero
-configuration.
+Ships in **paper-trading mode** for the agent itself (no real Polymarket bets).
+The **x402 paywall** is live on one premium endpoint for workshop demos and
+external integrations.
+
+---
+
+## What we built
+
+| Layer | What it is | Status |
+| --- | --- | --- |
+| **Scout** | RSS + CryptoPanic news ingestion, URL-deduped | Live on [poly-agent.fly.dev](https://poly-agent.fly.dev) |
+| **Quant** | LLM extracts sentiment; Python computes Bayesian posterior | Live (heuristic fallback; Groq optional) |
+| **Oracle** | Polymarket Gamma + CLOB price/order-book snapshots | Watching 5 crypto markets |
+| **Overseer** | Edge threshold, max size, drawdown kill switch | Enforced every cycle |
+| **Trader** | Idempotent paper executor | Live; LIVE signing stubbed for safety |
+| **Command Center** | React dashboard — portfolio, signals, trade log, kill switch | Served from same URL |
+| **Public API** | `GET /api/public/ping` — free, for Lovable / curl / webhooks | Live |
+| **x402 paywall** | `GET /api/trade/{id}/rationale` — $0.01 USDC/call, Base Sepolia | Live |
+| **Workshop skills** | `email-triage`, `x402-pay`, Gmail connector docs in [CLAUDE.md](./CLAUDE.md) | In `.cursor/skills/` |
+| **CI + deploy** | GitHub Actions, Docker, Fly.io with persistent SQLite | Auto on push |
+
+**Repository:** https://github.com/priyanshshahh/polymarket-sentiment-agent
+
+---
+
+## Why this is useful
+
+**For trading research**
+- Demonstrates how to trade on **information asymmetry** without letting an LLM
+  pick prices. The LLM only labels news; the math decides.
+- Full **audit trail**: every trade links to the headline, signal, and market
+  snapshot at decision time — essential for post-mortems.
+
+**For builders**
+- A working template for **decoupled agent architecture** (ingest → analyze →
+  price → risk → execute) that survives partial failures.
+- **Zero-key demo path**: runs on free RSS + Polymarket public APIs + heuristic NLP.
+
+**For the Headless Vibe workshop**
+- **Public endpoint** (`/api/public/ping`) you can hit from Lovable or any HTTP client.
+- **x402 micropayments**: machines and apps pay $0.01 USDC per premium API call
+  with no accounts or API keys — HTTP 402 is the invoice.
+- **Agent skills** so Claude can triage email (`/email`) or pay for your API
+  (`.cursor/skills/x402-pay`).
+
+**For monetization experiments**
+- Premium data (trade rationale) is gated behind x402. You receive USDC directly
+  to your wallet; the facilitator settles on-chain.
+
+---
+
+## x402 wallet (Base Sepolia)
+
+| Field | Value |
+| --- | --- |
+| **EVM address** | `0x5190715b3aFd1076b1416F20e7E64F53B90e054e` |
+| **USDC balance** | **20 USDC** (testnet, as of last on-chain check) |
+| **Network** | Base Sepolia (`eip155:84532`) |
+| **USDC contract** | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| **Facilitator** | https://x402.org/facilitator |
+
+Check balance anytime:
+
+```bash
+# On-chain (USDC ERC-20 balanceOf)
+curl -s -X POST https://sepolia.base.org \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x036CbD53842c5426634e7929541eC2318f3dCF7e","data":"0x70a082310000000000000000000000005190715b3afd1076b1416f20e7e64f53b90e054e"},"latest"],"id":1}'
+```
+
+Fund more testnet USDC: [Circle faucet](https://faucet.circle.com/) → **Base Sepolia**.
 
 ---
 
 ## Table of contents
 
+- [What we built](#what-we-built)
+- [Why this is useful](#why-this-is-useful)
+- [x402 wallet (Base Sepolia)](#x402-wallet-base-sepolia)
 - [What it does](#what-it-does)
 - [Why this design](#why-this-design)
 - [Architecture](#architecture)
