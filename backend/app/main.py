@@ -47,7 +47,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-PAYMENT-RESPONSE"],
+    expose_headers=["X-PAYMENT-RESPONSE", "PAYMENT-RESPONSE", "PAYMENT-REQUIRED"],
 )
 
 # Paywall selected routes via x402 (Base Sepolia). Requires X402_PAY_TO.

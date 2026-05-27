@@ -1,14 +1,17 @@
 /**
- * x402-pay — make a paid (x402 V1) HTTP request from any computer.
+ * x402-pay — make a paid (x402 V1 + V2) HTTP request from any computer.
  *
  * Pure JavaScript with ZERO npm runtime dependencies: it uses only Node built-ins
  * (fetch, crypto, child_process, fs, Buffer). The only native component is the
  * globally-installed **OWS CLI** (`ows`), which does the signing inside its vault
  * — the private key never leaves `~/.ows/wallets/`.
  *
- * We implement the small x402 V1 "exact" (EIP-3009) client flow directly, so we
- * don't pull in viem / x402-fetch and their heavy native transitive deps
- * (keccak, bufferutil, ...). OWS handles all cryptography.
+ * Supports both challenge formats:
+ *   V2: PAYMENT-REQUIRED header (base64 JSON) → retry with PAYMENT-SIGNATURE
+ *   V1: accepts[] in JSON body              → retry with X-PAYMENT
+ *
+ * We implement the x402 "exact" (EIP-3009) client flow directly so we don't pull
+ * in viem / x402-fetch. OWS handles all cryptography.
  *
  * Wallet selection (no .env needed): --wallet <name>, else the "## Crypto wallet"
  * section of the project's CLAUDE.md (wallet name + EVM address), else OWS_WALLET.
@@ -135,10 +138,57 @@ type Requirements = {
   extra?: { name?: string; version?: string };
 };
 
-/** Build the base64 X-PAYMENT header for the x402 V1 "exact" EVM scheme. */
+type Challenge = { x402Version: number; accepts: Requirements[] };
+
+/** Resolve EVM chain id from legacy name or CAIP-2 (e.g. eip155:84532). */
+function chainIdFromNetwork(network: string): number {
+  if (NETWORK_CHAIN_ID[network]) return NETWORK_CHAIN_ID[network];
+  const m = network.match(/^eip155:(\d+)$/i);
+  if (m) return parseInt(m[1], 10);
+  fail(`Unknown x402 network "${network}". Use CAIP-2 (eip155:84532) or add to NETWORK_CHAIN_ID.`);
+}
+
+/** Normalize V1/V2 accept objects to a single Requirements shape. */
+function normalizeAccept(raw: Record<string, unknown>): Requirements {
+  const amount = String(raw.maxAmountRequired ?? raw.amount ?? "");
+  if (!amount) fail("Payment requirements missing amount / maxAmountRequired.");
+  return {
+    scheme: String(raw.scheme ?? "exact"),
+    network: String(raw.network ?? ""),
+    maxAmountRequired: amount,
+    payTo: String(raw.payTo ?? ""),
+    asset: String(raw.asset ?? ""),
+    maxTimeoutSeconds: Number(raw.maxTimeoutSeconds ?? 300),
+    extra: raw.extra as Requirements["extra"],
+  };
+}
+
+/** Parse 402 challenge from PAYMENT-REQUIRED header (V2) or JSON body (V1). */
+async function parseChallengeAsync(response: Response): Promise<Challenge> {
+  const header =
+    response.headers.get("payment-required") ??
+    response.headers.get("PAYMENT-REQUIRED");
+  if (header) {
+    const decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8")) as {
+      x402Version?: number;
+      accepts?: Record<string, unknown>[];
+    };
+    const accepts = (decoded.accepts ?? []).map(normalizeAccept);
+    if (!accepts.length) fail("PAYMENT-REQUIRED header had no accepts[].");
+    return { x402Version: decoded.x402Version ?? 2, accepts };
+  }
+  const body = (await response.clone().json().catch(() => ({}))) as {
+    x402Version?: number;
+    accepts?: Record<string, unknown>[];
+  };
+  const accepts = (body.accepts ?? []).map(normalizeAccept);
+  if (!accepts.length) fail("402 response had no accepts[] in body or PAYMENT-REQUIRED header.");
+  return { x402Version: body.x402Version ?? 1, accepts };
+}
+
+/** Build the base64 payment header for the x402 "exact" EVM scheme (V1 + V2). */
 function buildPaymentHeader(wallet: string, from: string, x402Version: number, req: Requirements): string {
-  const chainId = NETWORK_CHAIN_ID[req.network];
-  if (!chainId) fail(`Unknown x402 network "${req.network}". Add it to NETWORK_CHAIN_ID.`);
+  const chainId = chainIdFromNetwork(req.network);
   if (req.scheme !== "exact") fail(`Unsupported x402 scheme "${req.scheme}" (only "exact" is implemented).`);
 
   const now = Math.floor(Date.now() / 1000);
@@ -181,7 +231,33 @@ function buildPaymentHeader(wallet: string, from: string, x402Version: number, r
   };
 
   const signature = owsSignTypedData(wallet, chainId, typedData);
-  const payment = { x402Version, scheme: req.scheme, network: req.network, payload: { signature, authorization } };
+  const innerPayload = { authorization, signature };
+
+  if (x402Version >= 2) {
+    // V2: scheme/network live under `accepted`, not top-level (see x402/schemas/payments.py).
+    const payment = {
+      x402Version: 2,
+      payload: innerPayload,
+      accepted: {
+        scheme: req.scheme,
+        network: req.network,
+        asset: req.asset,
+        amount: req.maxAmountRequired,
+        payTo: req.payTo,
+        maxTimeoutSeconds: req.maxTimeoutSeconds,
+        extra: req.extra ?? {},
+      },
+    };
+    return Buffer.from(JSON.stringify(payment)).toString("base64");
+  }
+
+  // V1 legacy envelope
+  const payment = {
+    x402Version: 1,
+    scheme: req.scheme,
+    network: req.network,
+    payload: innerPayload,
+  };
   return Buffer.from(JSON.stringify(payment)).toString("base64");
 }
 
@@ -222,15 +298,28 @@ async function main(): Promise<void> {
   let response = await fetch(url, baseInit);
 
   if (response.status === 402) {
-    const challenge = (await response.clone().json().catch(() => ({}))) as { x402Version?: number; accepts?: Requirements[] };
-    const req = challenge.accepts?.[0];
-    if (!req) fail("402 response did not include payment requirements (accepts[]).");
-    console.log(`Paying:  ${req.maxAmountRequired} (base units) on ${req.network} -> ${req.payTo}`);
+    const challenge = await parseChallengeAsync(response);
+    const req = challenge.accepts[0];
+    const usdc = Number(req.maxAmountRequired) / 1e6;
+    console.log(
+      `Paying:  ${req.maxAmountRequired} base units (~${usdc} USDC) on ${req.network} -> ${req.payTo}`,
+    );
+    console.log(`x402:    v${challenge.x402Version}`);
 
-    const xPayment = buildPaymentHeader(wallet, from, challenge.x402Version ?? 1, req);
+    const paymentB64 = buildPaymentHeader(wallet, from, challenge.x402Version, req);
 
-    // 2) Retry with the signed payment header.
-    response = await fetch(url, { ...baseInit, headers: { ...headers, "X-PAYMENT": xPayment } });
+    // V2: PAYMENT-SIGNATURE. V1: X-PAYMENT. Send both when version unknown.
+    const payHeaders: Record<string, string> = { ...headers };
+    if (challenge.x402Version >= 2) {
+      payHeaders["PAYMENT-SIGNATURE"] = paymentB64;
+    } else {
+      payHeaders["X-PAYMENT"] = paymentB64;
+    }
+    // Belt-and-suspenders for mixed stacks
+    payHeaders["PAYMENT-SIGNATURE"] = paymentB64;
+    payHeaders["X-PAYMENT"] = paymentB64;
+
+    response = await fetch(url, { ...baseInit, headers: payHeaders });
   }
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -239,7 +328,10 @@ async function main(): Promise<void> {
   console.log(`\nStatus:  ${response.status} ${response.statusText}`);
   console.log("Body:", typeof payload === "string" ? payload : JSON.stringify(payload, null, 2));
 
-  const settleHeader = response.headers.get("x-payment-response");
+  const settleHeader =
+    response.headers.get("payment-response") ??
+    response.headers.get("PAYMENT-RESPONSE") ??
+    response.headers.get("x-payment-response");
   if (settleHeader) {
     const settle = JSON.parse(Buffer.from(settleHeader, "base64").toString("utf8"));
     console.log("\nPayment settled:", JSON.stringify(settle, null, 2));

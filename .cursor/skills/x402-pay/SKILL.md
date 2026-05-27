@@ -100,7 +100,8 @@ and pays from the OWS wallet.
 
 The script defaults to **POST** and always sends `Accept: application/json` (many
 x402 servers only emit the `402` challenge for JSON POSTs). It implements the
-x402 **V1** "exact" (EIP-3009) flow directly in pure JS.
+x402 **V1 + V2** "exact" (EIP-3009) flow directly in pure JS. V2 reads
+`PAYMENT-REQUIRED` from the 402 response header and retries with `PAYMENT-SIGNATURE`.
 
 ```bash
 cd .claude/skills/x402-pay/scripts
