@@ -25,6 +25,8 @@ configuration.
 - [The math](#the-math-bayesian-update-against-market-price)
 - [Data model](#data-model)
 - [API reference](#api-reference)
+- [x402 monetization (workshop)](#x402-monetization-workshop)
+- [Workshop skills & Gmail](#workshop-skills--gmail)
 - [Configuration](#configuration)
 - [Running locally](#running-locally)
 - [Deployment](#deployment)
@@ -228,31 +230,79 @@ Schema definitions are in `backend/app/models.py`.
 The backend exposes JSON endpoints at `/api/*` and serves the React SPA
 from `/`.
 
-| Method | Path | Returns |
-| --- | --- | --- |
-| `GET` | `/healthz` | `{ok, mode}` |
-| `GET` | `/api/status` | Agent runtime config + last loop timestamp |
+| Method | Path | Payment | Returns |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | Free | `{ok, mode}` |
+| `GET` | `/api/public/ping` | Free | Public snapshot for Lovable / external pings |
+| `GET` | `/api/status` | Free | Agent runtime config + last loop timestamp |
 | `GET` | `/api/portfolio` | Cash, equity, realized + unrealized PnL, open positions |
 | `GET` | `/api/trades?limit=N` | Recent trades |
-| `GET` | `/api/trade/{id}/rationale` | Trade joined to signal, news, snapshot |
-| `GET` | `/api/signals?limit=N` | Recent LLM extractions |
-| `GET` | `/api/news?limit=N` | Recent ingested headlines |
-| `GET` | `/api/markets` | Latest snapshot per (market, outcome) |
-| `GET` | `/api/equity-curve` | Cumulative PnL time series |
-| `GET` | `/api/logs?limit=N&component=...` | Decision log events |
-| `POST` | `/api/kill-switch` | Body `{enabled: bool}` |
-| `POST` | `/api/loop/run-once` | Force one cycle immediately |
-| `POST` | `/api/loop/start` | Start the background loop |
-| `POST` | `/api/loop/stop` | Stop the background loop |
+| `GET` | `/api/trade/{id}/rationale` | **x402 $0.01 USDC** | Trade joined to signal, news, snapshot |
+| `GET` | `/api/signals?limit=N` | Free | Recent LLM extractions |
+| `GET` | `/api/news?limit=N` | Free | Recent ingested headlines |
+| `GET` | `/api/markets` | Free | Latest snapshot per (market, outcome) |
+| `GET` | `/api/equity-curve` | Free | Cumulative PnL time series |
+| `GET` | `/api/logs?limit=N&component=...` | Free | Decision log events |
+| `POST` | `/api/kill-switch` | Free | Body `{enabled: bool}` |
+| `POST` | `/api/loop/run-once` | Free | Force one cycle immediately |
+| `POST` | `/api/loop/start` | Free | Start the background loop |
+| `POST` | `/api/loop/stop` | Free | Stop the background loop |
 
 Auto-generated OpenAPI/Swagger at `/docs` (FastAPI default).
 
 Try it live:
 
 ```bash
+curl https://poly-agent.fly.dev/api/public/ping | jq
 curl https://poly-agent.fly.dev/api/status | jq
 curl https://poly-agent.fly.dev/api/trades | jq '.[0]'
 ```
+
+---
+
+## x402 monetization (workshop)
+
+Following the [Headless Vibe workshop](https://singleton.ai/w2), premium API access
+uses the [x402 protocol](https://x402.org): HTTP 402 → client pays USDC → retry
+with `X-PAYMENT` header.
+
+| Setting | Value |
+| --- | --- |
+| Network | Base Sepolia (`eip155:84532`) |
+| Facilitator | https://x402.org/facilitator (free, no API key) |
+| Price | $0.01 USDC per call |
+| Paywalled route | `GET /api/trade/{trade_id}/rationale` |
+| Receive wallet | `0x5190715b3aFd1076b1416F20e7E64F53B90e054e` (see [CLAUDE.md](./CLAUDE.md)) |
+
+**Test without paying:**
+
+```bash
+curl -i https://poly-agent.fly.dev/api/trade/1/rationale
+# HTTP/1.1 402 Payment Required
+```
+
+**Pay with the workshop `x402-pay` skill** (OWS wallet + USDC from [Circle faucet](https://faucet.circle.com/)):
+
+```bash
+cd .cursor/skills/x402-pay/scripts && npm install
+npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method GET
+```
+
+Enable locally: set `X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e` in `backend/.env`.
+
+---
+
+## Workshop skills & Gmail
+
+Project-scoped skills from [zingleton/workshop](https://github.com/zingleton/workshop/tree/main)
+are in `.cursor/skills/`:
+
+- **email-triage** — inbox scan + reply drafting (requires Gmail connector in Claude)
+- **x402-pay** — OWS wallet setup + pay for x402 APIs
+- **workshop** — full agenda reference
+
+**Gmail connector:** In Claude Code / Desktop, enable the Anthropic **Gmail**
+integration, then run `/email` or ask "check my email". See [CLAUDE.md](./CLAUDE.md).
 
 ---
 
@@ -280,6 +330,10 @@ runs with zero config. See `backend/.env.example` for the full list.
 | `OPENAI_API_KEY` | *(empty)* | Optional fallback. |
 | `ANTHROPIC_API_KEY` | *(empty)* | Optional fallback. |
 | `DATABASE_URL` | `sqlite:///./doa.db` | SQLAlchemy URL. |
+| `X402_PAY_TO` | *(empty)* | EVM address to receive x402 USDC (enables paywall). |
+| `X402_PRICE` | `$0.01` | Price per paywalled call. |
+| `X402_FACILITATOR_URL` | `https://x402.org/facilitator` | x402 facilitator. |
+| `X402_NETWORK` | `eip155:84532` | Base Sepolia (CAIP-2). |
 
 ### LLM provider priority
 

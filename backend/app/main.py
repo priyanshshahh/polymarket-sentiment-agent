@@ -15,6 +15,7 @@ from .api.routes import router as api_router
 from .config import settings
 from .database import init_db
 from .orchestrator import agent_loop
+from .x402_setup import setup_x402
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -35,8 +36,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="DOA Agent — Polymarket Sentiment Trader",
-    version="0.1.0",
+    title="Poly Agent — Polymarket Sentiment Trader",
+    version="0.2.0",
     description="Modular MVP: Scout -> Quant -> Oracle -> Trader, with Overseer gating.",
     lifespan=lifespan,
 )
@@ -46,7 +47,11 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-PAYMENT-RESPONSE"],
 )
+
+# Paywall selected routes via x402 (Base Sepolia). Requires X402_PAY_TO.
+setup_x402(app)
 
 app.include_router(api_router, prefix="/api")
 

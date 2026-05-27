@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     market_keywords: str = "bitcoin,ethereum,crypto,sec,etf,fed"
     max_markets: int = 5
 
+    # x402 paywall (Base Sepolia via https://x402.org/facilitator)
+    x402_pay_to: str = ""
+    x402_price: str = "$0.01"
+    x402_facilitator_url: str = "https://x402.org/facilitator"
+    x402_network: str = "eip155:84532"
+
     @property
     def rss_list(self) -> List[str]:
         return [u.strip() for u in self.rss_feeds.split(",") if u.strip()]

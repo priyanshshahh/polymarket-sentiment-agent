@@ -26,6 +26,32 @@ from ..schemas import (
 router = APIRouter()
 
 
+# ---------- Public (no auth, no x402) — for external / Lovable pings -----
+
+@router.get("/public/ping")
+def public_ping():
+    """Public health + agent snapshot for external integrations."""
+    with session_scope() as s:
+        last = s.get(AgentState, "last_loop_at")
+        trade_count = s.query(Trade).count()
+        signal_count = s.query(Signal).count()
+    return {
+        "ok": True,
+        "service": "poly-agent",
+        "mode": settings.trading_mode,
+        "x402_enabled": bool(settings.x402_pay_to),
+        "x402_price": settings.x402_price if settings.x402_pay_to else None,
+        "x402_network": settings.x402_network if settings.x402_pay_to else None,
+        "last_loop_at": last.value if last else None,
+        "trade_count": trade_count,
+        "signal_count": signal_count,
+        "paywalled_endpoints": [
+            "GET /api/trade/{trade_id}/rationale",
+        ],
+        "docs": "https://github.com/priyanshshahh/polymarket-sentiment-agent",
+    }
+
+
 # ---------- Status & control ---------------------------------------------
 
 def _llm_provider() -> str:
