@@ -1,6 +1,6 @@
 # Fly.io config for the DOA agent.
 
-app = "doa-agent-priyansh"
+app = "poly-agent"
 primary_region = "iad"
 
 [build]
