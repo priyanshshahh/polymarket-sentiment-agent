@@ -14,8 +14,41 @@ protocol so other apps and AI agents can buy premium trade intelligence with
 USDC on Base Sepolia.
 
 Ships in **paper-trading mode** for the agent itself (no real Polymarket bets).
-The **x402 paywall** is live on one premium endpoint for workshop demos and
-external integrations.
+The **x402 paywall** is a testnet demo on one premium endpoint.
+
+---
+
+## Status & honest results
+
+Read this before drawing any conclusions about performance.
+
+- **Paper-trading only.** The agent never places a real Polymarket order.
+  `TRADING_MODE=LIVE` is gated behind an explicit `NotImplementedError` in
+  `app/modules/execution.py:_execute_live` — the on-chain signer is
+  deliberately not implemented. There is no real money at risk and no real
+  fills.
+- **The "edge" is an unvalidated signal, not proven alpha.** The pipeline
+  maps a sentiment label (LLM or keyword heuristic) to a capped likelihood
+  ratio and Bayes-updates it against the live market price. This is a
+  *plausible* construction, but it has **not** been backtested or validated
+  against realized outcomes. Any paper PnL shown is mark-to-market
+  bookkeeping on simulated fills — **not evidence that the strategy is
+  profitable.** Treat it as a research scaffold, not a money printer.
+- **With zero API keys the signal is a keyword heuristic.** The default path
+  (no `GROQ_API_KEY`) scores headlines with a curated bullish/bearish word
+  list. It is intentionally crude.
+- **x402 is a testnet micropayment demo.** Payments settle in test USDC on
+  **Base Sepolia** (`eip155:84532`) via the free x402.org facilitator — no
+  mainnet money moves. It demonstrates the HTTP 402 pay-per-call flow only.
+- **Tests:** 38 backend pytest tests cover the Bayesian math, the
+  market-edge/matching logic, the risk gates, idempotent execution, the
+  LIVE-mode safety contract, and API route smoke tests. Run them with
+  `cd backend && pip install -r requirements-dev.txt && pytest`.
+- **Deployment liveness:** the app is configured for
+  https://poly-agent.fly.dev, but **at the time of writing that host was not
+  responding** (TLS connection reset). If you've forked this, redeploy with
+  `fly deploy --app <your-app>` to bring it back up; the code itself boots
+  and serves locally (verified: `uvicorn app.main:app` → `/healthz` 200).
 
 ---
 
@@ -69,7 +102,7 @@ external integrations.
 | Field | Value |
 | --- | --- |
 | **EVM address** | `0x5190715b3aFd1076b1416F20e7E64F53B90e054e` |
-| **USDC balance** | **20 USDC** (testnet, as of last on-chain check) |
+| **USDC balance** | Test USDC only (fund via the [Circle faucet](https://faucet.circle.com/); check on-chain with the command below) |
 | **Network** | Base Sepolia (`eip155:84532`) |
 | **USDC contract** | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | **Facilitator** | https://x402.org/facilitator |
@@ -435,6 +468,18 @@ The agent loop starts automatically. Visit:
 - `http://localhost:8000/docs` — Swagger UI
 - `http://localhost:8000/api/status` — agent state
 
+> Use Python **3.11–3.13** (the pinned `numpy`/`pydantic` wheels don't yet
+> build on 3.14). CI runs on 3.12.
+
+### Backend tests
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest            # 38 tests: math, edge logic, risk gates, execution, API
+```
+
 ### Frontend (dev)
 
 ```bash
@@ -463,6 +508,16 @@ cd ../backend && uvicorn app.main:app --port 8000
 Production is a **single container** on Fly.io: FastAPI serves both the
 API and the built React bundle, agent loop runs in the same process, SQLite
 sits on a persistent volume.
+
+> **Durability limitation.** The database is a single SQLite file on one
+> Fly volume attached to a single machine (`min_machines_running = 1`,
+> `auto_stop_machines = "off"`). There is **no replication and no automated
+> backup**: if that volume is lost or the machine is destroyed, the trade
+> history and audit log go with it. This is fine for a paper-trading
+> research demo, but for anything you care about, move to a managed
+> Postgres (`DATABASE_URL` is already the only change needed) or add a
+> volume snapshot/backup routine. The app also cannot be horizontally
+> scaled — a second instance would get its own separate SQLite file.
 
 ### Live deployment
 
