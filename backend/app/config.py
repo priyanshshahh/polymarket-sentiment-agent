@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # CORS — comma-separated list of allowed origins. Default covers local
+    # dev (Vite + uvicorn) plus the public Fly deployment. This is a
+    # payment-handling API, so we do NOT use a "*" wildcard.
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:8000,https://poly-agent.fly.dev"
+    )
+
     # Agent loop
     loop_interval_seconds: int = 30
     edge_threshold: float = 0.08
@@ -66,6 +73,10 @@ class Settings(BaseSettings):
     x402_price: str = "$0.01"
     x402_facilitator_url: str = "https://x402.org/facilitator"
     x402_network: str = "eip155:84532"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def rss_list(self) -> List[str]:
