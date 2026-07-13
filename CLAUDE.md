@@ -7,7 +7,7 @@ It follows the Headless Vibe workshop flow: public API, agent skills, x402 micro
 on Base Sepolia.
 
 **Operator:** Priyansh Shah  
-**Live app:** https://poly-agent.fly.dev  
+**Live app:** https://poly-agent.onrender.com (Render free tier — sleeps on idle, ~1 min cold start)  
 **GitHub:** https://github.com/priyanshshahh/polymarket-sentiment-agent
 
 ---
@@ -78,7 +78,7 @@ Check balance: `ows fund balance --wallet poly-agent`
 ```bash
 cd .cursor/skills/x402-pay/scripts
 npm install
-npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method GET
+npx tsx pay.ts --url https://poly-agent.onrender.com/api/trade/1/rationale --method GET
 ```
 
 ---
@@ -87,17 +87,17 @@ npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method G
 
 ```bash
 # Ping from Lovable / anywhere (no payment)
-curl https://poly-agent.fly.dev/api/public/ping
+curl https://poly-agent.onrender.com/api/public/ping
 
 # Agent status
-curl https://poly-agent.fly.dev/api/status
+curl https://poly-agent.onrender.com/api/status
 ```
 
 ## Paywalled API (x402)
 
 ```bash
 # Returns HTTP 402 with payment instructions
-curl -i https://poly-agent.fly.dev/api/trade/1/rationale
+curl -i https://poly-agent.onrender.com/api/trade/1/rationale
 
 # Pay with the x402-pay skill script (see above)
 ```
@@ -106,7 +106,12 @@ curl -i https://poly-agent.fly.dev/api/trade/1/rationale
 
 ## Deploy
 
-```bash
-fly secrets set X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e --app poly-agent
-fly deploy --app poly-agent
-```
+Render free tier via the `render.yaml` blueprint at the repo root:
+
+1. Render dashboard -> **New + -> Blueprint** -> select this repo.
+2. Set `X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e` (and optionally
+   `GROQ_API_KEY`) when prompted — these are `sync: false` in `render.yaml`.
+3. Pushes to `main` auto-deploy. Logs/env/restarts live in the dashboard.
+
+Free-tier notes: instance sleeps after ~15 min idle; SQLite is ephemeral
+(set `DATABASE_URL` to Neon Postgres for durable trade history).
