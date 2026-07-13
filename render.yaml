@@ -1,0 +1,46 @@
+# Render Blueprint for the DOA agent (poly-agent).
+#
+# Deploy: push this repo to GitHub, then in the Render dashboard choose
+# "New +" -> "Blueprint" and point it at the repo. Render reads this file
+# from the repo root and provisions everything below.
+#
+# Free-plan caveats (documented, not hidden):
+#   - The instance SLEEPS after ~15 min without inbound traffic and cold
+#     starts on the next request (~1 min). The agent loop only runs while
+#     the instance is awake.
+#   - There is NO persistent disk on the free plan: the default SQLite
+#     database is EPHEMERAL and is wiped on every deploy/restart/sleep
+#     cycle. Fine for a paper-trading demo; for durable trade history set
+#     DATABASE_URL to a managed Postgres (Neon free tier works) in the
+#     dashboard — that env var is the only change needed.
+
+services:
+  - type: web
+    name: poly-agent
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRADING_MODE
+        value: PAPER
+      - key: FRONTEND_DIST
+        value: /app/frontend_dist
+      # EPHEMERAL on the free plan (no disk). Point at Neon/any Postgres
+      # for durability — see the caveats block above.
+      - key: DATABASE_URL
+        value: sqlite:////data/doa.db
+      # Explicit browser origins — this API handles x402 payments, no "*".
+      # Replace poly-agent.onrender.com with your own service URL on forks.
+      - key: CORS_ORIGINS
+        value: http://localhost:5173,http://localhost:8000,https://poly-agent.onrender.com
+      # Secrets: set values in the Render dashboard, never in this file.
+      - key: X402_PAY_TO # Base Sepolia address that receives x402 test USDC (paywall off if unset)
+        sync: false
+      - key: GROQ_API_KEY # optional — free tier at console.groq.com; heuristic fallback without it
+        sync: false

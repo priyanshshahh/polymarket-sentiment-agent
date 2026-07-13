@@ -25,7 +25,9 @@ RUN pip install -r requirements.txt
 COPY backend/ ./
 COPY --from=web /web/dist /app/frontend_dist
 
-# /data is mounted as a Fly volume for SQLite persistence.
+# SQLite lives in /data. Mount a volume here on hosts that support it; on
+# Render's free plan this directory is ephemeral (see render.yaml — point
+# DATABASE_URL at Postgres for durable data).
 RUN mkdir -p /data
 VOLUME ["/data"]
 

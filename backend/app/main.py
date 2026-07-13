@@ -43,7 +43,7 @@ app = FastAPI(
 )
 
 # Scope CORS to explicit origins (this API handles x402 payments — no "*").
-# Configure via CORS_ORIGINS env var; defaults to localhost + the fly.dev origin.
+# Configure via CORS_ORIGINS env var; defaults to localhost + the Render origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,

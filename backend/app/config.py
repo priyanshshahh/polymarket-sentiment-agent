@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # CORS — comma-separated list of allowed origins. Default covers local
-    # dev (Vite + uvicorn) plus the public Fly deployment. This is a
+    # dev (Vite + uvicorn) plus the public Render deployment. This is a
     # payment-handling API, so we do NOT use a "*" wildcard.
     cors_origins: str = (
-        "http://localhost:5173,http://localhost:8000,https://poly-agent.fly.dev"
+        "http://localhost:5173,http://localhost:8000,https://poly-agent.onrender.com"
     )
 
     # Agent loop
