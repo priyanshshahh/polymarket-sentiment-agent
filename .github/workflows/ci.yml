@@ -23,23 +23,11 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - name: Import smoke test
         run: python -c "from app.main import app; from app.database import init_db; init_db(); print('OK')"
-      - name: Bayesian + heuristic sanity
-        run: |
-          python -c "
-          from app.modules.intelligence import bayesian_update, _heuristic
-          e = _heuristic('SEC approves Bitcoin ETF', 'big bullish news')
-          assert e.sentiment == 'bullish', e
-          p, lr = bayesian_update(0.5, e.sentiment, e.confidence)
-          assert p > 0.5 and lr > 1, (p, lr)
-          e2 = _heuristic('Major hack and lawsuit filed', 'fraud')
-          assert e2.sentiment == 'bearish', e2
-          p2, _ = bayesian_update(0.5, e2.sentiment, e2.confidence)
-          assert p2 < 0.5, p2
-          print('Sanity OK')
-          "
+      - name: Pytest
+        run: python -m pytest
 
   frontend:
     name: Frontend (Node 20)
