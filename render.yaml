@@ -40,7 +40,11 @@ services:
       - key: CORS_ORIGINS
         value: http://localhost:5173,http://localhost:8000,https://poly-agent.onrender.com
       # Secrets: set values in the Render dashboard, never in this file.
-      - key: X402_PAY_TO # Base Sepolia address that receives x402 test USDC (paywall off if unset)
+      - key: ADMIN_TOKEN # bearer token for /api/kill-switch, /api/loop/*, /api/track-record/resolve (503 if unset)
+        sync: false
+      - key: X402_ENABLED # must be "true" (with a valid X402_PAY_TO below) to turn the paywall on
+        sync: false
+      - key: X402_PAY_TO # Base Sepolia address that receives x402 test USDC
         sync: false
       - key: GROQ_API_KEY # optional — free tier at console.groq.com; heuristic fallback without it
         sync: false

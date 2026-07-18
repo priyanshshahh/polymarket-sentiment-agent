@@ -1,10 +1,15 @@
 # Poly Agent — Sentiment Trading on Polymarket
 
 [![CI](https://github.com/priyanshshahh/polymarket-sentiment-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshshahh/polymarket-sentiment-agent/actions/workflows/ci.yml)
-[![Live demo](https://img.shields.io/badge/demo-poly--agent.onrender.com-7cf6c4)](https://poly-agent.onrender.com)
+[![Deploy: pending](https://img.shields.io/badge/deploy-pending-yellow)](#deployment)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Live demo:** **https://poly-agent.onrender.com**
+**Live demo:** deploy pending — the Render Blueprint (`render.yaml`) is ready
+and verified locally, but the actual Render deploy hasn't happened yet (owner
+login required). See [Deployment](#deployment) to deploy your own, or
+[docs/PROJECT-NOTES.md](docs/PROJECT-NOTES.md) for status. This README will
+be updated with the real URL once it's live — until then, treat any
+`poly-agent.onrender.com` reference below as illustrative, not a working link.
 
 Poly Agent is a **modular sentiment-trading system** for [Polymarket](https://polymarket.com):
 it ingests crypto news, estimates probabilities with rigorous math (not LLM
@@ -40,9 +45,11 @@ Read this before drawing any conclusions about performance.
 - **x402 is a testnet micropayment demo.** Payments settle in test USDC on
   **Base Sepolia** (`eip155:84532`) via the free x402.org facilitator — no
   mainnet money moves. It demonstrates the HTTP 402 pay-per-call flow only.
-- **Tests:** 38 backend pytest tests cover the Bayesian math, the
+- **Tests:** 77 backend pytest tests cover the Bayesian math, the
   market-edge/matching logic, the risk gates, idempotent execution, the
-  LIVE-mode safety contract, and API route smoke tests. Run them with
+  LIVE-mode safety contract, API route smoke tests, ADMIN_TOKEN auth,
+  the x402 pay-to validation/gating, and the track-record scoring
+  (Brier/log-loss/calibration + the insufficient-data gate). Run them with
   `cd backend && pip install -r requirements-dev.txt && pytest`.
 - **Deployment liveness:** the original Fly.io deployment
   (poly-agent.fly.dev) is dead and Fly.io is no longer used. The project
@@ -65,7 +72,9 @@ Read this before drawing any conclusions about performance.
 | **Trader** | Idempotent paper executor | Live; LIVE signing stubbed for safety |
 | **Command Center** | React dashboard — portfolio, signals, trade log, kill switch | Served from same URL |
 | **Public API** | `GET /api/public/ping` — free, for Lovable / curl / webhooks | Live |
-| **x402 paywall** | `GET /api/trade/{id}/rationale` — $0.01 USDC/call, Base Sepolia | Live |
+| **x402 paywall** | `GET /api/trade/{id}/rationale` — $0.01 USDC/call, Base Sepolia; requires `X402_ENABLED=true` + a valid pay-to address | Live |
+| **Track record** | `GET /api/track-record` — every emitted prediction scored (Brier/log-loss/calibration) against real Polymarket resolutions | Live; `insufficient_data` until ≥10 resolved |
+| **Admin auth** | `ADMIN_TOKEN` bearer auth on kill-switch/loop/resolve control routes (503 disabled, 401 wrong/missing token) | Enforced |
 | **Workshop skills** | `email-triage`, `x402-pay`, Gmail connector docs in [CLAUDE.md](./CLAUDE.md) | In `.cursor/skills/` |
 | **CI + deploy** | GitHub Actions, Docker, Render blueprint (`render.yaml`) | Auto on push |
 
@@ -351,19 +360,26 @@ from `/`.
 | `GET` | `/api/markets` | Free | Latest snapshot per (market, outcome) |
 | `GET` | `/api/equity-curve` | Free | Cumulative PnL time series |
 | `GET` | `/api/logs?limit=N&component=...` | Free | Decision log events |
-| `POST` | `/api/kill-switch` | Free | Body `{enabled: bool}` |
-| `POST` | `/api/loop/run-once` | Free | Force one cycle immediately |
-| `POST` | `/api/loop/start` | Free | Start the background loop |
-| `POST` | `/api/loop/stop` | Free | Stop the background loop |
+| `GET` | `/api/track-record?limit=N` | Free | Falsifiable prediction log scored against real Polymarket resolutions (Brier/log-loss/calibration; `insufficient_data` below 10 resolved) |
+| `POST` | `/api/kill-switch` | **Admin** (Bearer `ADMIN_TOKEN`) | Body `{enabled: bool}` |
+| `POST` | `/api/loop/run-once` | **Admin** (Bearer `ADMIN_TOKEN`) | Force one cycle immediately |
+| `POST` | `/api/loop/start` | **Admin** (Bearer `ADMIN_TOKEN`) | Start the background loop |
+| `POST` | `/api/loop/stop` | **Admin** (Bearer `ADMIN_TOKEN`) | Stop the background loop |
+| `POST` | `/api/track-record/resolve?backfill=bool` | **Admin** (Bearer `ADMIN_TOKEN`) | Pull fresh Gamma resolutions; optionally backfill the prediction log from historical trades |
+
+The four `/api/kill-switch` and `/api/loop/*` routes, plus
+`/api/track-record/resolve`, return `503` if `ADMIN_TOKEN` is unset (disabled,
+not open) and `401` for a missing/wrong bearer token.
 
 Auto-generated OpenAPI/Swagger at `/docs` (FastAPI default).
 
-Try it live:
+Try it (once deployed — see [Deployment](#deployment); or run locally per
+[Running locally](#running-locally)):
 
 ```bash
-curl https://poly-agent.onrender.com/api/public/ping | jq
-curl https://poly-agent.onrender.com/api/status | jq
-curl https://poly-agent.onrender.com/api/trades | jq '.[0]'
+curl https://<your-service>.onrender.com/api/public/ping | jq
+curl https://<your-service>.onrender.com/api/status | jq
+curl https://<your-service>.onrender.com/api/trades | jq '.[0]'
 ```
 
 ---
@@ -382,10 +398,10 @@ with `X-PAYMENT` header.
 | Paywalled route | `GET /api/trade/{trade_id}/rationale` |
 | Receive wallet | `0x5190715b3aFd1076b1416F20e7E64F53B90e054e` (see [CLAUDE.md](./CLAUDE.md)) |
 
-**Test without paying:**
+**Test without paying** (against your own deploy or `localhost:8000`):
 
 ```bash
-curl -i https://poly-agent.onrender.com/api/trade/1/rationale
+curl -i https://<your-service>.onrender.com/api/trade/1/rationale
 # HTTP/1.1 402 Payment Required
 ```
 
@@ -393,10 +409,13 @@ curl -i https://poly-agent.onrender.com/api/trade/1/rationale
 
 ```bash
 cd .cursor/skills/x402-pay/scripts && npm install
-npx tsx pay.ts --url https://poly-agent.onrender.com/api/trade/1/rationale --method GET
+npx tsx pay.ts --url https://<your-service>.onrender.com/api/trade/1/rationale --method GET
 ```
 
-Enable locally: set `X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e` in `backend/.env`.
+Enable locally: set `X402_ENABLED=true` and
+`X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e` in `backend/.env`.
+Both are required — `X402_ENABLED=true` with no (or a malformed/zero) address
+fails startup hard rather than silently running a paywall nobody can collect.
 
 ---
 
@@ -429,6 +448,7 @@ runs with zero config. See `backend/.env.example` for the full list.
 | `MAX_OPEN_POSITIONS` | `5` | Refuse new entries past this. |
 | `DAILY_DRAWDOWN_USDC` | `25` | If 24h realized PnL drops below `-25`, auto-engage kill switch. |
 | `KILL_SWITCH` | `false` | Initial kill switch state. |
+| `ADMIN_TOKEN` | *(empty)* | Bearer token required on `/api/kill-switch`, `/api/loop/*`, `/api/track-record/resolve`. Unset = those routes return `503` (disabled), not open. |
 | `MARKET_KEYWORDS` | `bitcoin,ethereum,crypto,sec,etf,fed` | Filter for market discovery. |
 | `WATCH_MARKETS` | *(empty)* | Comma-separated `condition_id`s to pin specific markets. Overrides keyword discovery. |
 | `MAX_MARKETS` | `5` | How many markets to track. |
@@ -437,8 +457,9 @@ runs with zero config. See `backend/.env.example` for the full list.
 | `GROQ_API_KEY` | *(empty)* | **Recommended.** Free tier at https://console.groq.com. Llama 3.1 8B. |
 | `OPENAI_API_KEY` | *(empty)* | Optional fallback. |
 | `ANTHROPIC_API_KEY` | *(empty)* | Optional fallback. |
-| `DATABASE_URL` | `sqlite:///./doa.db` | SQLAlchemy URL. |
-| `X402_PAY_TO` | *(empty)* | EVM address to receive x402 USDC (enables paywall). |
+| `DATABASE_URL` | `sqlite:///./doa.db` | SQLAlchemy URL. `postgres://`/`postgresql://` (Neon, Render, Heroku-style) are normalized to `postgresql+psycopg2://` automatically. |
+| `X402_ENABLED` | `false` | Must be `true` (in addition to a valid `X402_PAY_TO`) to turn the paywall on. Startup fails hard if enabled without a well-formed, non-zero address. |
+| `X402_PAY_TO` | *(empty)* | EVM address to receive x402 USDC. |
 | `X402_PRICE` | `$0.01` | Price per paywalled call. |
 | `X402_FACILITATOR_URL` | `https://x402.org/facilitator` | x402 facilitator. |
 | `X402_NETWORK` | `eip155:84532` | Base Sepolia (CAIP-2). |
@@ -479,7 +500,8 @@ The agent loop starts automatically. Visit:
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest            # 38 tests: math, edge logic, risk gates, execution, API
+pytest            # 77 tests: math, edge logic, risk gates, execution, API,
+                  # admin auth, x402 paywall, track-record scoring
 ```
 
 ### Frontend (dev)
@@ -535,12 +557,17 @@ Blueprint describing the whole service.
    `Dockerfile`, and starts the service on the **free** plan with health
    checks against `/healthz`.
 3. When prompted for the `sync: false` env vars, set:
-   - `X402_PAY_TO` — Base Sepolia address that receives x402 test USDC
-     (leave blank to disable the paywall);
+   - `ADMIN_TOKEN` — a random shared secret; leave unset to run with the
+     control endpoints disabled (`503`), not open;
+   - `X402_ENABLED` + `X402_PAY_TO` — set both to a Base Sepolia address that
+     receives x402 test USDC to enable the paywall, or leave both unset to
+     run without it;
    - `GROQ_API_KEY` — optional; without it the agent uses the keyword
      heuristic.
 4. The app lands at `https://<service-name>.onrender.com`. Update
    `CORS_ORIGINS` in `render.yaml` (or the dashboard) to match your URL.
+   Once verified, update this README's live-demo line (top) and
+   `docs/PROJECT-NOTES.md` with the real URL.
 
 ### Redeploy after changes
 
@@ -580,10 +607,13 @@ signer on a public repo is a footgun. To enable:
    client = ClobClient(
        host="https://clob.polymarket.com",
        chain_id=137,
-       key=settings.wallet_private_key,
+       key=os.environ["WALLET_PRIVATE_KEY"],  # add this setting when you wire the signer
    )
    # build a market order, sign with EIP-712, submit
    ```
+   There is no `wallet_private_key` setting in `config.py` today — it was a
+   dead placeholder and has been removed. Add it back alongside the signer,
+   not before.
 2. **Capture the order id / tx hash** on the `Trade.tx_hash` column for
    audit.
 3. **Store the wallet key as a Render environment variable** (service →
