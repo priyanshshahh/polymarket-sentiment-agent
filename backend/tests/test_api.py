@@ -1,6 +1,8 @@
 """FastAPI route smoke tests via TestClient (no network, no lifespan)."""
 from __future__ import annotations
 
+import pytest
+
 from app.config import settings
 from app.main import app
 
@@ -44,6 +46,19 @@ def test_portfolio_empty(client):
     body = r.json()
     assert body["realized_pnl_usdc"] == 0.0
     assert body["open_positions"] == []
+
+
+def test_portfolio_with_filled_trade_does_not_500(client, filled_trade):
+    # Regression: Trade.created_at round-trips tz-naive from SQLite, but the
+    # 24h cutoff used to be tz-aware, so this used to raise
+    # "can't compare offset-naive and offset-aware datetimes".
+    r = client.get("/api/portfolio")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["open_positions"]) == 1
+    assert body["open_positions"][0]["id"] == filled_trade
+    assert body["open_positions_usdc"] == pytest.approx(10.0)
+    assert body["daily_pnl_usdc"] == pytest.approx(0.0)
 
 
 def test_kill_switch_toggle(client):

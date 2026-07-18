@@ -163,7 +163,10 @@ def list_trades(limit: int = Query(100, le=500)):
 
 @router.get("/portfolio", response_model=PortfolioOut)
 def portfolio():
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    # SQLite round-trips DateTime columns as tz-naive even though we write
+    # tz-aware values, so compare against a naive cutoff to avoid
+    # "can't compare offset-naive and offset-aware datetimes".
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).replace(tzinfo=None)
     with session_scope() as s:
         trades = s.query(Trade).filter(Trade.status == "FILLED").all()
         open_trades = [t for t in trades if t.closed_at is None]
@@ -171,7 +174,13 @@ def portfolio():
         realized = sum(t.pnl_usdc or 0.0 for t in closed_trades)
         unrealized = sum(t.pnl_usdc or 0.0 for t in open_trades)
         open_size = sum(t.size_usdc for t in open_trades)
-        daily = sum(t.pnl_usdc or 0.0 for t in trades if t.created_at >= cutoff)
+
+        def _naive(dt):
+            return dt.replace(tzinfo=None) if dt and dt.tzinfo else dt
+
+        daily = sum(
+            t.pnl_usdc or 0.0 for t in trades if t.created_at and _naive(t.created_at) >= cutoff
+        )
         # Cash = simulated starting bank - open size
         starting_cash = 1000.0
         cash = starting_cash - open_size + realized
