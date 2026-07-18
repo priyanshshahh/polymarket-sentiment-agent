@@ -36,13 +36,14 @@ def public_ping():
         last = s.get(AgentState, "last_loop_at")
         trade_count = s.query(Trade).count()
         signal_count = s.query(Signal).count()
+    x402_on = settings.x402_enabled and bool(settings.x402_pay_to)
     return {
         "ok": True,
         "service": "poly-agent",
         "mode": settings.trading_mode,
-        "x402_enabled": bool(settings.x402_pay_to),
-        "x402_price": settings.x402_price if settings.x402_pay_to else None,
-        "x402_network": settings.x402_network if settings.x402_pay_to else None,
+        "x402_enabled": x402_on,
+        "x402_price": settings.x402_price if x402_on else None,
+        "x402_network": settings.x402_network if x402_on else None,
         "last_loop_at": last.value if last else None,
         "trade_count": trade_count,
         "signal_count": signal_count,
