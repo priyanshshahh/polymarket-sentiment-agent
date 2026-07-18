@@ -61,13 +61,18 @@ def test_portfolio_with_filled_trade_does_not_500(client, filled_trade):
     assert body["daily_pnl_usdc"] == pytest.approx(0.0)
 
 
-def test_kill_switch_toggle(client):
-    r = client.post("/api/kill-switch", json={"enabled": True})
+def test_kill_switch_toggle(client, monkeypatch):
+    # /api/kill-switch is admin-gated (see test_admin_auth.py for the full
+    # 503/401/200 auth-behavior spec) — authenticate here to exercise the
+    # underlying toggle behavior.
+    monkeypatch.setattr(settings, "admin_token", "s3cret")
+    headers = {"Authorization": "Bearer s3cret"}
+    r = client.post("/api/kill-switch", json={"enabled": True}, headers=headers)
     assert r.status_code == 200
     assert r.json()["kill_switch"] is True
     # reflected in status
     assert client.get("/api/status").json()["kill_switch"] is True
-    client.post("/api/kill-switch", json={"enabled": False})
+    client.post("/api/kill-switch", json={"enabled": False}, headers=headers)
 
 
 def test_rationale_not_found(client):
